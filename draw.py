@@ -1,70 +1,72 @@
 #!/usr/bin/env python3
-"""Draw the make.fun news-image-20261123 entry: a dense newspaper front page
-summing up world news of Monday 23 November 2026.
+"""Front page for Monday 23 November 2026, drawn entirely in code.
 
-Every pixel is code-drawn with Pillow (no photos, no network, no fonts
-fetched at run time). The program writes entry.png next to itself:
-    python3 draw.py
+Run from this directory:
+    python3 draw.py        # writes entry.png next to this file
 
-Layout: masthead, a COP31 hero panel, then 38 dated stories grouped into
-9 region sections across two columns, plus an "Also today" strip and a
-sources footer. 1024x1024, well under the 1 MiB limit.
+The picture is a newspaper front page: masthead, one big hero story
+(COP31 collapses), then the rest of the day's news in dated two-line
+items grouped under nine region banners across two columns, an
+"Also today" strip, and a sources footer. Everything is rendered with
+Pillow from the story table below; no photos, no fonts fetched, no
+network. The output is 1024x1024 and about 250 KB.
 
-Density discipline: each story is exactly two lines -- one bold headline
-line prefixed by its red date, one detail line -- so 38 stories fit
-legibly in the two columns. Headlines and details are written short on
-purpose; the program prints a warning for any line that would wrap.
-
-Facts: every story verified against 2+ outlets (see ../research.md and
-../topup.md). Dropped: Brent crude levels, DRC Ebola case figures,
-Tonj East 87 claim, Hodeidah 17 toll, Odesa stadium detail, Merkury
-ship class, Vyshneve toll of 3. US market closes are the agreed closes
-(S&P 7,237.17; Dow 49,595.31; Nasdaq 24,089.56).
+Facts come from the research notes in the parent directory
+(research.md, topup.md). Every item was checked against at least two
+outlets; figures the outlets disagreed on (Brent crude, the DRC Ebola
+case count, the Tonj East 87 claim, the Hodeidah 17 toll, the Odesa
+stadium detail, the Merkury ship class) are left off the page, and
+the US market closes printed are the ones all outlets agreed on.
 """
 
-import textwrap
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 1024, 1024
-MARGIN = 28
-COL_GAP = 20
-COL_W = (W - 2 * MARGIN - COL_GAP) // 2  # 469
+PAGE_W, PAGE_H = 1024, 1024
+PAD = 28
+GAP = 20
+COL = (PAGE_W - 2 * PAD - GAP) // 2
 
-PAPER = (246, 241, 231)
-INK = (22, 22, 22)
-MUTED = (90, 84, 74)
-RED = (163, 22, 33)
-NAVY = (18, 33, 61)
-GOLD = (198, 148, 52)
-RULE = (180, 172, 156)
-STRIP_BG = (232, 226, 212)
-
-FONT_DIR = Path("/usr/share/fonts/truetype/dejavu")
-SERIF_B = str(FONT_DIR / "DejaVuSerif-Bold.ttf")
-SANS = str(FONT_DIR / "DejaVuSans.ttf")
-SANS_B = str(FONT_DIR / "DejaVuSans-Bold.ttf")
-
-F = {
-    "masthead": ImageFont.truetype(SERIF_B, 44),
-    "mast_sub": ImageFont.truetype(SANS_B, 17),
-    "mast_meta": ImageFont.truetype(SANS, 12),
-    "hero_kicker": ImageFont.truetype(SANS_B, 13),
-    "hero_head": ImageFont.truetype(SERIF_B, 25),
-    "hero_body": ImageFont.truetype(SANS, 14),
-    "hero_fact": ImageFont.truetype(SANS_B, 12),
-    "section": ImageFont.truetype(SANS_B, 14),
-    "head": ImageFont.truetype(SANS_B, 13),
-    "body": ImageFont.truetype(SANS, 11),
-    "strip_head": ImageFont.truetype(SANS_B, 12),
-    "strip": ImageFont.truetype(SANS, 11),
-    "footer": ImageFont.truetype(SANS, 10),
+PALETTE = {
+    "paper": (246, 241, 231),
+    "ink": (22, 22, 22),
+    "grey": (90, 84, 74),
+    "red": (163, 22, 33),
+    "navy": (18, 33, 61),
+    "gold": (198, 148, 52),
+    "rule": (180, 172, 156),
+    "strip": (232, 226, 212),
+    "hero_body": (214, 222, 235),
+    "hairline": (226, 220, 206),
 }
 
-# (region, [(date, headline, detail), ...]) — every story dated, verified
-# against 2+ outlets on 23 Nov 2026 (see ../research.md + ../topup.md).
-SECTIONS = [
+DEJAVU = Path("/usr/share/fonts/truetype/dejavu")
+
+
+def load_fonts():
+    def f(name, size):
+        return ImageFont.truetype(str(DEJAVU / name), size)
+
+    return {
+        "masthead": f("DejaVuSerif-Bold.ttf", 44),
+        "mast_sub": f("DejaVuSans-Bold.ttf", 17),
+        "mast_meta": f("DejaVuSans.ttf", 12),
+        "kicker": f("DejaVuSans-Bold.ttf", 13),
+        "hero_head": f("DejaVuSerif-Bold.ttf", 25),
+        "hero_body": f("DejaVuSans.ttf", 14),
+        "hero_fact": f("DejaVuSans-Bold.ttf", 12),
+        "banner": f("DejaVuSans-Bold.ttf", 14),
+        "head": f("DejaVuSans-Bold.ttf", 13),
+        "detail": f("DejaVuSans.ttf", 11),
+        "strip_head": f("DejaVuSans-Bold.ttf", 12),
+        "strip": f("DejaVuSans.ttf", 11),
+        "footer": f("DejaVuSans.ttf", 10),
+    }
+
+
+# date, headline, one-line detail. Section order is the display order.
+NEWS = [
     ("MIDDLE EAST", [
         ("23 NOV", "Trump threatens fresh Iran strikes in the new year",
          "Vows to sink blockade runners; Iran says Hormuz could reopen in two days."),
@@ -161,7 +163,7 @@ SECTIONS = [
     ]),
 ]
 
-STRIP = [
+ALSO = [
     ("23 NOV", "Treasury sanctions hit Iran exchanges"),
     ("23 NOV", "Houthi media: 10 killed in Hodeidah strike"),
     ("22 NOV", "Broncos 38\u201324 Raiders; Commanders 22\u201320 Bengals"),
@@ -173,163 +175,187 @@ STRIP = [
     ("23 NOV", "Iran demands $290bn damages from US"),
 ]
 
-HERO = {
-    "kicker": "CLIMATE  \u00b7  ANTALYA, T\u00dcRKIYE  \u00b7  22 NOVEMBER 2026",
-    "head": "COP31 COLLAPSES: NO DEAL AS EU REJECTS A TEXT WITH NO FOSSIL FUELS",
-    "body": [
-        "The UN climate summit ends without a pact \u2014 the longest COP ever \u2014 after the EU, UK and",
-        "island states reject a final text that never once names fossil fuels. Stiell: \u201cThe world",
-        "cannot afford a repeat.\u201d Next COP: Addis Ababa, Ethiopia, Nov 2027.",
-    ],
-    "facts": "LONGEST COP EVER  \u00b7  FIRST BREAKDOWN SINCE COP15 IN 2009  \u00b7  1.5\u00b0C GOAL NOW OUT OF REACH",
-}
+HERO_KICKER = "CLIMATE  \u00b7  ANTALYA, T\u00dcRKIYE  \u00b7  22 NOVEMBER 2026"
+HERO_HEAD = "COP31 COLLAPSES: NO DEAL AS EU REJECTS A TEXT WITH NO FOSSIL FUELS"
+HERO_BODY = (
+    "The UN climate summit ends without a pact \u2014 the longest COP ever \u2014 after the EU, UK and",
+    "island states reject a final text that never once names fossil fuels. Stiell: \u201cThe world",
+    "cannot afford a repeat.\u201d Next COP: Addis Ababa, Ethiopia, Nov 2027.",
+)
+HERO_FACTS = "LONGEST COP EVER  \u00b7  FIRST BREAKDOWN SINCE COP15 IN 2009  \u00b7  1.5\u00b0C GOAL NOW OUT OF REACH"
 
-HEAD_LH, BODY_LH, STORY_GAP = 14, 11, 2
-STORY_H = HEAD_LH + BODY_LH + STORY_GAP  # 27
-SECTION_HDR = 20
-SECTION_GAP = 4
+BANNER_H = 20
+ITEM_H = 27          # headline 14 + detail 11 + 2 gap
+HEADLINE_Y = 14      # detail sits this far below the headline
+SECTION_PAD = 4
+COL_GAP_AFTER = 4    # space after a section inside a column
 
 
-def wrap(draw, text, font, width):
-    """Greedy word-wrap to pixel width; returns a list of lines."""
-    lines = []
-    for raw in text.split("\n"):
-        words, cur = raw.split(), ""
+def split_lines(canvas, text, font, max_w):
+    """Break text into lines no wider than max_w (greedy, word by word)."""
+    out = []
+    for chunk in text.split("\n"):
+        words = chunk.split()
+        current = ""
         for word in words:
-            trial = f"{cur} {word}".strip()
-            if draw.textlength(trial, font=font) <= width:
-                cur = trial
+            candidate = f"{current} {word}".strip()
+            if canvas.textlength(candidate, font=font) <= max_w:
+                current = candidate
             else:
-                if cur:
-                    lines.append(cur)
-                cur = word
-        if cur:
-            lines.append(cur)
-    return lines
+                if current:
+                    out.append(current)
+                current = word
+        if current:
+            out.append(current)
+    return out
 
 
-def check_fits(draw):
-    """Every headline (with its date prefix) and every detail must fit one line."""
-    bad = []
-    for name, stories in SECTIONS:
-        for date, head, detail in stories:
-            hl = f"{date} \u00b7 {head}"
-            if draw.textlength(hl, font=F["head"]) > COL_W:
-                bad.append(f"HEADLINE WRAPS [{name}]: {hl}")
-            if draw.textlength(detail, font=F["body"]) > COL_W - 4:
-                bad.append(f"DETAIL WRAPS [{name}]: {detail}")
-    return bad
+def lines_that_overflow(canvas, fonts):
+    """Return every story line that would not fit on one line."""
+    problems = []
+    for section, items in NEWS:
+        for date, headline, detail in items:
+            full = f"{date} \u00b7 {headline}"
+            if canvas.textlength(full, font=fonts["head"]) > COL:
+                problems.append(f"{section}: headline too long: {full}")
+            if canvas.textlength(detail, font=fonts["detail"]) > COL - 4:
+                problems.append(f"{section}: detail too long: {detail}")
+    return problems
 
 
-def section_height(stories):
-    return SECTION_HDR + len(stories) * STORY_H + 4
+def block_height(n_items):
+    return BANNER_H + n_items * ITEM_H + SECTION_PAD
 
 
-def draw_section(draw, x, y, name, stories):
-    draw.rectangle([x, y, x + COL_W, y + SECTION_HDR], fill=NAVY)
-    draw.text((x + 8, y + 3), name, font=F["section"], fill=(255, 255, 255))
-    y += SECTION_HDR + 4
-    for date, head, detail in stories:
-        # headline line: red date prefix + bold headline
-        dtext = f"{date} \u00b7 "
-        dw = draw.textlength(dtext, font=F["head"])
-        draw.text((x, y), dtext, font=F["head"], fill=RED)
-        draw.text((x + dw, y), head, font=F["head"], fill=INK)
-        draw.text((x + 4, y + HEAD_LH), detail, font=F["body"], fill=MUTED)
-        y += STORY_H
-        draw.line([x, y - 1, x + COL_W, y - 1], fill=(226, 220, 206))
+def partition_columns():
+    """Split the nine sections into two columns with near-equal height.
+
+    Brute force over all 2**9 splits; keep the split whose taller column
+    is shortest. Sections keep their NEWS order inside each column.
+    """
+    heights = [block_height(len(items)) + COL_GAP_AFTER for _, items in NEWS]
+    total = sum(heights)
+    best_mask, best_score = 0, total
+    for mask in range(1 << len(heights)):
+        left = sum(h for i, h in enumerate(heights) if mask & (1 << i))
+        score = max(left, total - left)
+        if score < best_score:
+            best_mask, best_score = mask, score
+    left, right = [], []
+    for i, (section, items) in enumerate(NEWS):
+        (left if best_mask & (1 << i) else right).append((section, items))
+    return left, right
+
+
+def paint_masthead(canvas, fonts):
+    canvas.text((PAGE_W // 2, 6), "THE WORLD IN ONE DAY", font=fonts["masthead"],
+                fill=PALETTE["ink"], anchor="ma")
+    canvas.line([PAD, 62, PAGE_W - PAD, 62], fill=PALETTE["ink"], width=2)
+    canvas.line([PAD, 66, PAGE_W - PAD, 66], fill=PALETTE["rule"], width=1)
+    canvas.text((PAD, 72), "MONDAY 23 NOVEMBER 2026", font=fonts["mast_sub"],
+                fill=PALETTE["red"])
+    canvas.text((PAGE_W - PAD, 73), "38 STORIES  \u00b7  9 REGIONS  \u00b7  EVERY STORY DATED",
+                font=fonts["mast_meta"], fill=PALETTE["grey"], anchor="ra")
+
+
+def paint_hero(canvas, fonts):
+    top, height = 96, 156
+    canvas.rectangle([PAD, top, PAGE_W - PAD, top + height], fill=PALETTE["navy"])
+    canvas.rectangle([PAD, top, PAD + 6, top + height], fill=PALETTE["gold"])
+    canvas.text((PAD + 18, top + 8), HERO_KICKER, font=fonts["kicker"],
+                fill=PALETTE["gold"])
+    y = top + 28
+    for line in split_lines(canvas, HERO_HEAD, fonts["hero_head"], PAGE_W - 2 * PAD - 36):
+        canvas.text((PAD + 18, y), line, font=fonts["hero_head"], fill="white")
+        y += 27
+    for line in HERO_BODY:
+        canvas.text((PAD + 18, y), line, font=fonts["hero_body"],
+                    fill=PALETTE["hero_body"])
+        y += 16
+    canvas.text((PAD + 18, top + height - 19), HERO_FACTS, font=fonts["hero_fact"],
+                fill=(198, 164, 92))
+    return top + height + 8
+
+
+def paint_section(canvas, fonts, x, y, section, items):
+    canvas.rectangle([x, y, x + COL, y + BANNER_H], fill=PALETTE["navy"])
+    canvas.text((x + 8, y + 3), section, font=fonts["banner"], fill="white")
+    y += BANNER_H + SECTION_PAD
+    for date, headline, detail in items:
+        stamp = f"{date} \u00b7 "
+        stamp_w = canvas.textlength(stamp, font=fonts["head"])
+        canvas.text((x, y), stamp, font=fonts["head"], fill=PALETTE["red"])
+        canvas.text((x + stamp_w, y), headline, font=fonts["head"],
+                    fill=PALETTE["ink"])
+        canvas.text((x + 4, y + HEADLINE_Y), detail, font=fonts["detail"],
+                    fill=PALETTE["grey"])
+        y += ITEM_H
+        canvas.line([x, y - 1, x + COL, y - 1], fill=PALETTE["hairline"])
     return y
 
 
-def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
+def paint_strip(canvas, fonts, y, height):
+    canvas.rectangle([PAD, y, PAGE_W - PAD, y + height], fill=PALETTE["strip"])
+    canvas.text((PAD + 8, y + 5), "ALSO TODAY", font=fonts["strip_head"],
+                fill=PALETTE["red"])
+    cells = [f"{date} \u2014 {text}" for date, text in ALSO]
+    rows = ["  \u00b7  ".join(cells[i:i + 3]) for i in range(0, len(cells), 3)]
+    for i, row in enumerate(rows):
+        if canvas.textlength(row, font=fonts["strip"]) > PAGE_W - 2 * PAD - 16:
+            raise SystemExit(f"strip row {i + 1} too long: {row}")
+        canvas.text((PAD + 8, y + 20 + i * 14), row, font=fonts["strip"],
+                    fill=PALETTE["ink"])
 
-    bad = check_fits(d)
-    for b in bad:
-        print("WARNING:", b)
-    if bad:
-        raise SystemExit(f"{len(bad)} lines would wrap; shorten them first")
 
-    # ---- masthead ----
-    d.text((W // 2, 6), "THE WORLD IN ONE DAY", font=F["masthead"],
-           fill=INK, anchor="ma")
-    d.line([MARGIN, 62, W - MARGIN, 62], fill=INK, width=2)
-    d.line([MARGIN, 66, W - MARGIN, 66], fill=RULE, width=1)
-    d.text((MARGIN, 72), "MONDAY 23 NOVEMBER 2026", font=F["mast_sub"], fill=RED)
-    right = "38 STORIES  \u00b7  9 REGIONS  \u00b7  EVERY STORY DATED"
-    d.text((W - MARGIN, 73), right, font=F["mast_meta"], fill=MUTED, anchor="ra")
+def paint_footer(canvas, fonts):
+    y = PAGE_H - 16
+    canvas.text(
+        (PAD, y),
+        "Sources: AP, Reuters, Al Jazeera, AFP, BBC, CNN, NBC, Anadolu, WION, Xinhua, Kyodo, Sky Sports \u2014 20\u201323 Nov 2026 editions. Tolls as reported; disputed tolls flagged in the story.",
+        font=fonts["footer"], fill=PALETTE["grey"])
 
-    # ---- hero: COP31 ----
-    hy, hero_h = 96, 156
-    d.rectangle([MARGIN, hy, W - MARGIN, hy + hero_h], fill=NAVY)
-    d.rectangle([MARGIN, hy, MARGIN + 6, hy + hero_h], fill=GOLD)
-    d.text((MARGIN + 18, hy + 8), HERO["kicker"], font=F["hero_kicker"], fill=GOLD)
-    head_lines = wrap(d, HERO["head"], F["hero_head"], W - 2 * MARGIN - 36)
-    ty = hy + 28
-    for line in head_lines:
-        d.text((MARGIN + 18, ty), line, font=F["hero_head"], fill=(255, 255, 255))
-        ty += 27
-    for line in HERO["body"]:
-        d.text((MARGIN + 18, ty), line, font=F["hero_body"], fill=(214, 222, 235))
-        ty += 16
-    d.text((MARGIN + 18, hy + hero_h - 19), HERO["facts"], font=F["hero_fact"],
-           fill=(198, 164, 92))
 
-    # ---- body: two columns, sections balanced by optimal partition ----
-    # (subset-sum over the 9 sections; order within each column preserved)
-    body_top = hy + hero_h + 8
+def build():
+    fonts = load_fonts()
+    page = Image.new("RGB", (PAGE_W, PAGE_H), PALETTE["paper"])
+    canvas = ImageDraw.Draw(page)
+
+    problems = lines_that_overflow(canvas, fonts)
+    for problem in problems:
+        print("WARNING:", problem)
+    if problems:
+        raise SystemExit(f"{len(problems)} lines would wrap; shorten them first")
+
+    paint_masthead(canvas, fonts)
+    body_top = paint_hero(canvas, fonts)
+
     strip_h, footer_h = 58, 18
-    body_bottom = H - strip_h - footer_h - 6
-    measured = [(name, stories, section_height(stories) + SECTION_GAP)
-                for name, stories in SECTIONS]
-    total_h = sum(h for _, _, h in measured)
-    best = None
-    for mask in range(1 << len(measured)):
-        h0 = sum(measured[i][2] for i in range(len(measured)) if mask >> i & 1)
-        h1 = total_h - h0
-        score = max(h0, h1)
-        if best is None or score < best[0]:
-            best = (score, mask)
-    _, mask = best
-    col_sections = [[], []]
-    for i, (name, stories, h) in enumerate(measured):
-        col_sections[0 if (mask >> i) & 1 else 1].append((name, stories))
-    col_heights = [sum(section_height(s) + SECTION_GAP for _, s in col)
-                   for col in col_sections]
-    print("column heights:", col_heights, "budget:", body_bottom - body_top)
-    assert max(col_heights) <= body_bottom - body_top, "body overflow"
+    body_bottom = PAGE_H - strip_h - footer_h - 6
+    left, right = partition_columns()
+    heights = [
+        sum(block_height(len(items)) + COL_GAP_AFTER for _, items in col)
+        for col in (left, right)
+    ]
+    print("column heights:", heights, "budget:", body_bottom - body_top)
+    if max(heights) > body_bottom - body_top:
+        raise SystemExit("body overflow")
 
-    for ci, sections in enumerate(col_sections):
-        x = MARGIN + ci * (COL_W + COL_GAP)
+    for col_i, sections in enumerate((left, right)):
+        x = PAD + col_i * (COL + GAP)
         y = body_top
-        for name, stories in sections:
-            y = draw_section(d, x, y, name, stories)
-            y += SECTION_GAP
+        for section, items in sections:
+            y = paint_section(canvas, fonts, x, y, section, items)
+            y += COL_GAP_AFTER
 
-    # ---- also-today strip ----
-    sy = H - strip_h - footer_h
-    d.rectangle([MARGIN, sy, W - MARGIN, sy + strip_h], fill=STRIP_BG)
-    d.text((MARGIN + 8, sy + 5), "ALSO TODAY", font=F["strip_head"], fill=RED)
-    bits = [f"{date} \u2014 {text}" for date, text in STRIP]
-    strip_lines = ["  \u00b7  ".join(bits[i:i + 3]) for i in range(0, len(bits), 3)]
-    for li, line in enumerate(strip_lines):
-        if d.textlength(line, font=F["strip"]) > W - 2 * MARGIN - 16:
-            raise SystemExit(f"strip line {li + 1} too long: {line}")
-        d.text((MARGIN + 8, sy + 20 + li * 14), line, font=F["strip"], fill=INK)
-
-    # ---- footer ----
-    fy = H - footer_h + 2
-    d.text((MARGIN, fy),
-           "Sources: AP, Reuters, Al Jazeera, AFP, BBC, CNN, NBC, Anadolu, WION, Xinhua, Kyodo, Sky Sports \u2014 20\u201323 Nov 2026 editions. Tolls as reported; disputed tolls flagged in the story.",
-           font=F["footer"], fill=MUTED)
+    paint_strip(canvas, fonts, PAGE_H - strip_h - footer_h, strip_h)
+    paint_footer(canvas, fonts)
 
     out = Path(__file__).resolve().parent / "entry.png"
-    img.save(out, optimize=True)
-    print(f"wrote {out} ({out.stat().st_size} bytes, {W}x{H})")
-    total = sum(len(s) for _, s in SECTIONS)
-    print(f"stories: {total} main + 1 hero + {len(STRIP)} strip")
+    page.save(out, optimize=True)
+    total = sum(len(items) for _, items in NEWS)
+    print(f"wrote {out} ({out.stat().st_size} bytes, {PAGE_W}x{PAGE_H})")
+    print(f"stories: {total} main + 1 hero + {len(ALSO)} strip")
 
 
 if __name__ == "__main__":
-    main()
+    build()

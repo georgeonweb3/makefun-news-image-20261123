@@ -1,46 +1,50 @@
-// news-image-20261123 entry, written for Node 22 with only the
-// standard library.
+// Entry point for the news-image-20261123 submission (Node 22, stdlib only).
 //
-// The front page is already drawn: entry.png sits beside this file,
-// produced by draw.py (Python + Pillow, every pixel code-drawn, no
-// photos, no network). This program's only job is to deliver that
-// exact file to the grader as /output/entry.png.
+// draw.py has already rendered the front page into entry.png next to this
+// file. All this program does is hand that exact file to the grader as
+// /output/entry.png, after checking it really is a complete PNG.
 //
-// Run it by hand outside the grading container like this:
+// Try it outside the grading container with:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = join(here, "entry.png");
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-const target = join(outDir, "entry.png");
+const PNG_HEAD = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const PNG_TAIL = [0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
 
-// A PNG always starts with these eight bytes; refuse to hand the judge
-// anything else, so a bad checkout fails loudly instead of scoring zero.
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-const head = await readFile(source, { encoding: null }).then((b) => b.subarray(0, 8));
-if (!head.equals(PNG_MAGIC)) {
-  throw new Error("entry.png is not a PNG file");
+function looksLikePng(bytes) {
+  if (bytes.length < 20) return "file too short to be a PNG";
+  for (let i = 0; i < PNG_HEAD.length; i++) {
+    if (bytes[i] !== PNG_HEAD[i]) return "first bytes are not the PNG signature";
+  }
+  for (let i = 0; i < PNG_TAIL.length; i++) {
+    if (bytes[bytes.length - PNG_TAIL.length + i] !== PNG_TAIL[i]) {
+      return "missing the IEND trailer: file looks truncated";
+    }
+  }
+  return null;
 }
 
-await mkdir(outDir, { recursive: true });
-await copyFile(source, target);
+const root = dirname(fileURLToPath(import.meta.url));
+const sourcePath = join(root, "entry.png");
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+const outputPath = join(outputDir, "entry.png");
 
-// The copy must be a whole PNG, not just the right size: check the
-// IEND trailer (last 12 bytes: length 0, "IEND", CRC 0xAE426082).
-const tail = await readFile(target, { encoding: null }).then((b) => b.subarray(-12));
-const IEND = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
-if (!tail.equals(IEND)) {
-  throw new Error("entry.png is truncated: missing IEND trailer");
+const bytes = await readFile(sourcePath);
+const problem = looksLikePng(bytes);
+if (problem) {
+  throw new Error(`entry.png failed its sanity check: ${problem}`);
 }
 
-const [srcStat, dstStat] = await Promise.all([stat(source), stat(target)]);
-if (srcStat.size !== dstStat.size) {
-  throw new Error(
-    `entry.png copied short: ${dstStat.size} of ${srcStat.size} bytes`,
-  );
+await mkdir(outputDir, { recursive: true });
+await writeFile(outputPath, bytes);
+
+const written = await readFile(outputPath);
+if (written.length !== bytes.length || !written.equals(bytes)) {
+  throw new Error("the copy in /output does not match entry.png byte for byte");
 }
-console.log(`wrote ${target} (${dstStat.size} bytes)`);
+// Deterministic by construction: the same entry.png bytes go out on
+// every run, so the grader's two runs produce identical output.
+console.log(`wrote ${outputPath} (${written.length} bytes)`);
